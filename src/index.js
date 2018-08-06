@@ -13,12 +13,17 @@ const Kafka = require('kafka-node')
 const readAllStream = require('read-all-stream')
 const prettyJson = require('prettyjson')
 const pretty = prettyJson.render
+const fs = require('fs')
+const Path = require('path')
+const include = []
 
 argv
   .version('0.0.0')
   .option('-e, --encode',           'Read newline-delimited JSON from stdin and produce protobuf-encoded to Kafka')
   .option('-d, --decode',           'Consume encoded protobuf from Kafka and write JSON')
   .option('-p, --pretty',           'Pretty-print on stdout (instead of printing JSON)')
+  .option('-I, --include [path]',   'Add directory to search for .proto files (can use more than once; defaults to cwd)')
+  .on('option:include', dir => include.push(dir))
   .option('-z, --zookeeper [addr]', 'Zookeeper address')
   .option('-t, --topic [topic]',    'Topic to interact with (instead of stdin/stdout)')
   .option('-T, --stdio',            'Connect both ends to stdin/stdout')
@@ -44,6 +49,9 @@ if (argv.args.length != 2) {
   process.exit(1)
 }
 
+if (include.length == 0)
+  include.push('.')
+
 if ('string' != typeof argv.topic) {
   console.error("what topic do you want? maybe you misused -t?")
   process.exit(1)
@@ -57,8 +65,20 @@ if (!argv.stdio && !zookeeper) {
 
 const protoFilename = argv.args[0]
 const messageTypeName = argv.args[1]
-const loadedProtos = Protobuf.loadSync(protoFilename)
-const messageType = findMessageType(messageTypeName.split('.'), loadedProtos)
+
+/* Load protos */
+const root = new Protobuf.Root();
+root.resolvePath = (origin, target) => {
+  for (let i = 0; i < include.length; i++) {
+    const path = Path.join(include[i], target)
+    if (fs.existsSync(path))
+      return path
+  }
+  console.error('warning: could not find', target, 'needed by', origin)
+  return null;
+}
+root.loadSync(protoFilename)
+const messageType = root.lookupType(messageTypeName)
 
 if (messageType === null) {
   console.error(`error: could not find message type "${messageTypeName}" in proto file "${protoFilename}"`)
@@ -88,7 +108,6 @@ if (!argv.stdio)
 const client = new Kafka.Client(zookeeper)
 const topic = argv.topic
 const groupId = argv.groupId || `pbpp-${topic}`
-console.log(groupId)
 
 if (argv.encode) {
   highland(process.stdin)
@@ -152,14 +171,4 @@ if (argv.decode) {
 
 function maybePretty(x) {
   return argv.pretty ? pretty(x) : JSON.stringify(x)
-}
-
-function findMessageType(nameParts, tree) {
-  if (!('nested' in tree))
-    return null
-  if (nameParts.length == 0)
-    return tree
-  const namePart = nameParts[0]
-  if (namePart in tree.nested)
-    return findMessageType(nameParts.slice(1), tree.nested[namePart])
 }
