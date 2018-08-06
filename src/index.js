@@ -30,10 +30,16 @@ argv
   .option('--defaults',             'Enable defaults in decoded output')
   .option('--stringEnums',          'Enable string enums in decoded output')
   .option('-g, --groupId [gid]',    'Override default group id (pbpp-<topic-name>)')
+  .option('-N, --noout',            'Skip writing serialized message in encode mode')
   .parse(process.argv)
 
 if (argv.encode == argv.decode) {
   console.error('you must specify either -e or -d')
+  process.exit(1)
+}
+
+if (!argv.encode && argv.noout) {
+  console.error('-N only affects -e')
   process.exit(1)
 }
 
@@ -52,7 +58,7 @@ if (argv.args.length != 2) {
 if (include.length == 0)
   include.push('.')
 
-if ('string' != typeof argv.topic) {
+if (('string' != typeof argv.topic) && !argv.stdio) {
   console.error("what topic do you want? maybe you misused -t?")
   process.exit(1)
 }
@@ -105,8 +111,8 @@ const verify = msgJson => {
 
 if (!argv.stdio)
   console.log('connecting to zookeeper at', zookeeper)
-const client = new Kafka.Client(zookeeper)
-const topic = argv.topic
+const client = argv.stdio ? null : new Kafka.Client(zookeeper)
+const topic = argv.stdio ? null : argv.topic
 const groupId = argv.groupId || `pbpp-${topic}`
 
 if (argv.encode) {
@@ -116,13 +122,23 @@ if (argv.encode) {
   .map(JSON.parse)
   .filter(verify)
   .map(fromObject)
-  .tap(msgObject => process.stdio || console.log('producing:', maybePretty(toObject(decode(encode(msgObject))))))
+  .tap(msgObject => {
+    if (argv.topic)
+      console.log('producing the following message:')
+    if (argv.pretty) {
+      if (argv.noout)
+        console.log(pretty(toObject(decode(encode(msgObject)))))
+      else
+        console.error(pretty(toObject(decode(encode(msgObject)))))
+    }
+  })
   .map(encode)
   .each(buffer => {
-    if (process.stdio)
-      process.stdout.write(buffer)
-    else {
-      producer = (argv.encode && argv.topic) ? new Kafka.Producer(client) : null
+    if (argv.stdio) {
+      if (!argv.noout)
+        process.stdout.write(buffer)
+    } else {
+      producer = new Kafka.Producer(client)
       producer.on('ready', () => {
         producer.send([{ topic, messages: [buffer], key: 'a key i guess' }], (err, res) => {
           if (err) {
@@ -156,12 +172,14 @@ if (argv.decode) {
     })
   } else {
     console.warn('notice: decoding a SINGLE message!')
-    const buffer = readAllStream(process.stdin)
-    const jsonMsg = toObject(decode(buffer))
-    if (argv.pretty)
-      console.log(pretty(jsonMsg))
-    else
-      console.log(JSON.stringify(jsonMsg))
+    readAllStream(process.stdin).then(buffer => {
+      console.log('wot', typeof buffer, buffer.constructor.name)
+      const jsonMsg = toObject(decode(buffer))
+      if (argv.pretty)
+        console.log(pretty(jsonMsg))
+      else
+        console.log(JSON.stringify(jsonMsg))
+    })
   }
 }
 
