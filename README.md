@@ -21,7 +21,10 @@ This example:
 6) Produces that serialized message to the topic `my-topic`
 7) Exits due to EOF on `stdin`
 ```
-tr \\n \  < message.json | pbpp -z localhost:2181 -t my-topic -e my.proto myprotobufpackage.MyProtobufMessageType -p --stringEnums -I .
+tr '\n' ' ' < message.json | \
+  pbpp -e -p -z localhost:2181 -t my-topic \
+  -I . my.proto myprotobufpackage.MyProtobufMessageType \
+  --stringEnums
 ```
 
 ### Monitoring a Topic
@@ -34,7 +37,18 @@ This example:
 6) Pretty prints that message to `stdout`
 7) Will read until disconnect or signal
 ```
-pbpp my.proto myprotobufpackage.MyProtobufMessageType -z localhost:2181 -t my-topic -d -I . -p --stringEnums
+pbpp -d -p -z localhost:2181 -t my-topic \
+  -I . my.proto myprotobufpackage.MyProtobufMessageType \
+  --stringEnums
+
+### Pretty printing
+If you only want to encode and pretty-print a message:
+```
+tr '\n' ' ' < ex1.json | \
+pbpp -e -p -T -N \
+  -I . my.proto myprotobufpackage.MyProtobufMessageType \
+  --stringEnums
+```
 
 ## Usage Details
 ```
