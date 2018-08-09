@@ -40,6 +40,7 @@ This example:
 pbpp -d -p -z localhost:2181 -t my-topic \
   -I . my.proto myprotobufpackage.MyProtobufMessageType \
   --stringEnums
+```
 
 ### Pretty printing
 If you only want to encode and pretty-print a message:
